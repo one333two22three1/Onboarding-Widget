@@ -13,6 +13,7 @@ const {
   DATABASE_URL,
   ADMIN_KEY,
   START_STAGE_ID,
+  LOCATION_FIELD_ID,
   WEBHOOK_KEY,
   MAX_CREATES_PER_HOUR = '30',
   PORT = 3000
@@ -110,6 +111,40 @@ async function resolveOpportunity(loc) {
   const opp = (res.opportunities || [])[0];
   if (!opp) return null;
   await setOpp(loc, opp.id);
+  return opp.id;
+}
+
+// Link a sub-account to the opportunity the order form already created, using the order-form email
+async function findContactByEmail(email) {
+  const q = new URLSearchParams({ locationId: ONBOARDING_LOCATION_ID, query: email, limit: '5' });
+  const r = await ghl('GET', '/contacts/?' + q);
+  const want = email.toLowerCase();
+  return (r.contacts || []).find(c => String(c.email || '').toLowerCase() === want) || null;
+}
+
+async function findOpportunityForContact(contactId) {
+  const q = new URLSearchParams({
+    location_id: ONBOARDING_LOCATION_ID,
+    pipeline_id: ONBOARDING_PIPELINE_ID,
+    contact_id: contactId,
+    limit: '5'
+  });
+  const r = await ghl('GET', '/opportunities/search?' + q);
+  return (r.opportunities || [])[0] || null;
+}
+
+async function linkByEmail(loc, email) {
+  if (!email) return null;
+  const contact = await findContactByEmail(String(email).trim());
+  if (!contact) return null;
+  const opp = await findOpportunityForContact(contact.id);
+  if (!opp) return null;
+  await setOpp(loc, opp.id);
+  if (LOCATION_FIELD_ID) {
+    await ghl('PUT', `/contacts/${contact.id}`, {
+      customFields: [{ id: LOCATION_FIELD_ID, value: loc }]
+    });
+  }
   return opp.id;
 }
 
@@ -213,8 +248,24 @@ app.post('/webhooks/ghl', async (req, res) => {
   const loc = String(b.id || b.locationId || '');
   if (!LOC_RE.test(loc)) return res.status(400).end();
   try {
-    await ensureOpportunity(loc, { name: b.name, email: b.email });
-    res.json({ ok: true });
+    const linked = await linkByEmail(loc, b.email);
+    if (!linked) await ensureOpportunity(loc, { name: b.name, email: b.email });
+    res.json({ ok: true, linked: !!linked });
+  } catch (e) {
+    console.error(e.message, JSON.stringify(e.detail || {}));
+    res.status(502).end();
+  }
+});
+
+// Manual / workflow link: POST { locationId, email } with x-admin-key
+app.post('/admin/link', async (req, res) => {
+  if (!ADMIN_KEY || req.get('x-admin-key') !== ADMIN_KEY) return res.status(401).end();
+  const { locationId, email } = req.body || {};
+  if (!LOC_RE.test(String(locationId)) || !email) return res.status(400).end();
+  try {
+    const id = await linkByEmail(locationId, email);
+    if (!id) return res.status(404).json({ error: 'no contact/opportunity for that email in the onboarding pipeline' });
+    res.json({ ok: true, opportunityId: id });
   } catch (e) {
     console.error(e.message, JSON.stringify(e.detail || {}));
     res.status(502).end();
