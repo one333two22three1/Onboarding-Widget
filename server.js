@@ -18,7 +18,14 @@ const {
   PORT = 3000
 } = process.env;
 
-const STAGES = JSON.parse(STEP_STAGES);                       // { stepId: stageId }
+let STAGES;
+try {
+  STAGES = JSON.parse(STEP_STAGES);
+} catch {
+  console.error('❌  STEP_STAGES is not valid JSON. Make sure the value is on a single line in your .env file.');
+  console.error('   Example:  STEP_STAGES={"business-profile":"stage-id-1","import-contacts":"stage-id-2"}');
+  process.exit(1);
+}
 const ORIGINS = ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 const LOC_RE = /^[A-Za-z0-9]{10,30}$/;
 
