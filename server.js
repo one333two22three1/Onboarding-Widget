@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -10,6 +12,9 @@ const {
   ALLOWED_ORIGINS = 'https://app.gohighlevel.com',
   DATABASE_URL,
   ADMIN_KEY,
+  START_STAGE_ID,
+  WEBHOOK_KEY,
+  MAX_CREATES_PER_HOUR = '30',
   PORT = 3000
 } = process.env;
 
@@ -93,6 +98,57 @@ async function resolveOpportunity(loc) {
   return opp.id;
 }
 
+// Auto-create the onboarding contact + opportunity for a brand-new sub-account
+const inflight = new Map();
+let created = { hour: 0, n: 0 };
+function underCreateLimit() {
+  const h = Math.floor(Date.now() / 3600000);
+  if (created.hour !== h) created = { hour: h, n: 0 };
+  return created.n < Number(MAX_CREATES_PER_HOUR);
+}
+
+async function createOpportunity(loc, info = {}) {
+  const label = info.name || 'New sub-account';
+  let contactId;
+  try {
+    const c = await ghl('POST', '/contacts/', {
+      locationId: ONBOARDING_LOCATION_ID,
+      firstName: label,
+      lastName: loc,
+      email: info.email || undefined,
+      tags: ['onboarding']
+    });
+    contactId = c.contact.id;
+  } catch (e) {
+    contactId = e.detail && e.detail.meta && e.detail.meta.contactId;   // duplicate email -> reuse
+    if (!contactId) throw e;
+  }
+  const o = await ghl('POST', '/opportunities/', {
+    pipelineId: ONBOARDING_PIPELINE_ID,
+    locationId: ONBOARDING_LOCATION_ID,
+    name: `${label} - ${loc}`,
+    pipelineStageId: START_STAGE_ID,
+    status: 'open',
+    contactId
+  });
+  return o.opportunity.id;
+}
+
+async function ensureOpportunity(loc, info) {
+  const existing = await resolveOpportunity(loc);
+  if (existing || !START_STAGE_ID) return existing || null;
+  if (inflight.has(loc)) return inflight.get(loc);
+  if (!underCreateLimit()) return null;
+  const p = (async () => {
+    const id = await createOpportunity(loc, info);
+    created.n++;
+    await setOpp(loc, id);
+    return id;
+  })().finally(() => inflight.delete(loc));
+  inflight.set(loc, p);
+  return p;
+}
+
 /* ---------------- app ---------------- */
 const app = express();
 app.use(express.json());
@@ -103,6 +159,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/onboarding/status', async (req, res) => {
   const loc = String(req.query.locationId || '');
   if (!LOC_RE.test(loc)) return res.status(400).json({ error: 'bad locationId' });
+  ensureOpportunity(loc).catch(e => console.error('auto-create failed', e.message, JSON.stringify(e.detail || {})));
   try { res.json({ completed: await getDone(loc) }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'server' }); }
 });
@@ -113,7 +170,7 @@ app.post('/onboarding/complete', async (req, res) => {
   const stageId = STAGES[stepId];
   if (!stageId) return res.status(400).json({ error: 'unknown step' });
   try {
-    const oppId = await resolveOpportunity(loc);
+    const oppId = await ensureOpportunity(loc);
     if (!oppId) return res.status(404).json({ error: 'no onboarding opportunity for this location' });
     await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: stageId });
     await markDone(loc, stepId);
@@ -131,6 +188,22 @@ app.post('/admin/map', async (req, res) => {
   if (!LOC_RE.test(String(locationId)) || !opportunityId) return res.status(400).end();
   await setOpp(locationId, opportunityId);
   res.json({ ok: true });
+});
+
+// Optional: Marketplace app webhook (event LocationCreate) -> create the opportunity at sign-up time
+app.post('/webhooks/ghl', async (req, res) => {
+  if (!WEBHOOK_KEY || req.query.key !== WEBHOOK_KEY) return res.status(401).end();
+  const b = req.body || {};
+  if (b.type && b.type !== 'LocationCreate') return res.json({ ignored: true });
+  const loc = String(b.id || b.locationId || '');
+  if (!LOC_RE.test(loc)) return res.status(400).end();
+  try {
+    await ensureOpportunity(loc, { name: b.name, email: b.email });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e.message, JSON.stringify(e.detail || {}));
+    res.status(502).end();
+  }
 });
 
 initDb()
