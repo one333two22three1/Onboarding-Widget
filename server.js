@@ -14,6 +14,7 @@ const {
   ADMIN_KEY,
   START_STAGE_ID,
   LOCATION_FIELD_ID,
+  AUTO_CREATE = 'false',
   WEBHOOK_KEY,
   MAX_CREATES_PER_HOUR = '30',
   PORT = 3000
@@ -186,7 +187,7 @@ async function createOpportunity(loc, info = {}) {
 
 async function ensureOpportunity(loc, info) {
   const existing = await resolveOpportunity(loc);
-  if (existing || !START_STAGE_ID) return existing || null;
+  if (existing || AUTO_CREATE !== 'true' || !START_STAGE_ID) return existing || null;
   if (inflight.has(loc)) return inflight.get(loc);
   if (!underCreateLimit()) return null;
   const p = (async () => {
@@ -209,7 +210,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.get('/onboarding/status', async (req, res) => {
   const loc = String(req.query.locationId || '');
   if (!LOC_RE.test(loc)) return res.status(400).json({ error: 'bad locationId' });
-  ensureOpportunity(loc).catch(e => console.error('auto-create failed', e.message, JSON.stringify(e.detail || {})));
+  resolveOpportunity(loc).catch(e => console.error('lookup failed', e.message, JSON.stringify(e.detail || {})));
   try { res.json({ completed: await getDone(loc) }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'server' }); }
 });
@@ -220,8 +221,11 @@ app.post('/onboarding/complete', async (req, res) => {
   const stageId = STAGES[stepId];
   if (!stageId) return res.status(400).json({ error: 'unknown step' });
   try {
-    const oppId = await ensureOpportunity(loc);
-    if (!oppId) return res.status(404).json({ error: 'no onboarding opportunity for this location' });
+    const oppId = await resolveOpportunity(loc);
+    if (!oppId) {
+      console.warn('not linked yet: ' + loc + ' (link by email via the webhook or /admin/link)');
+      return res.status(404).json({ error: 'no onboarding opportunity linked to this location' });
+    }
     await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: stageId });
     await markDone(loc, stepId);
     res.json({ ok: true });
@@ -249,8 +253,9 @@ app.post('/webhooks/ghl', async (req, res) => {
   if (!LOC_RE.test(loc)) return res.status(400).end();
   try {
     const linked = await linkByEmail(loc, b.email);
-    if (!linked) await ensureOpportunity(loc, { name: b.name, email: b.email });
-    res.json({ ok: true, linked: !!linked });
+    const id = linked || await ensureOpportunity(loc, { name: b.name, email: b.email });
+    if (!id) console.warn('no onboarding opportunity found for email ' + b.email + ' (location ' + loc + ')');
+    res.json({ ok: !!id, linked: !!linked, opportunityId: id || null });
   } catch (e) {
     console.error(e.message, JSON.stringify(e.detail || {}));
     res.status(502).end();
