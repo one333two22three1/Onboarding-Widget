@@ -30,19 +30,27 @@ const ORIGINS = ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 const LOC_RE = /^[A-Za-z0-9]{10,30}$/;
 
 /* ---------------- storage: Postgres, or memory fallback ---------------- */
-const pool = DATABASE_URL
+let pool = DATABASE_URL
   ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
   : null;
 const mem = { steps: new Map(), opp: new Map() };             // locationId -> Set / oppId
 
 async function initDb() {
-  if (!pool) return console.warn('DATABASE_URL not set: using in-memory storage');
-  await pool.query(`
-    create table if not exists ob_steps(
-      location_id text, step_id text, done_at timestamptz default now(),
-      primary key (location_id, step_id));
-    create table if not exists ob_opp(
-      location_id text primary key, opportunity_id text not null);`);
+  if (!pool) return console.warn('⚠️  DATABASE_URL not set: using in-memory storage (data lost on restart)');
+  try {
+    await pool.query(`
+      create table if not exists ob_steps(
+        location_id text, step_id text, done_at timestamptz default now(),
+        primary key (location_id, step_id));
+      create table if not exists ob_opp(
+        location_id text primary key, opportunity_id text not null);`);
+    console.log('✅  Connected to Postgres');
+  } catch (e) {
+    console.warn('⚠️  Could not connect to Postgres:', e.message);
+    console.warn('    Falling back to in-memory storage (data lost on restart).');
+    console.warn('    If running locally, use the Render *external* DATABASE_URL (includes .render.com in the hostname).');
+    pool = null; // disable pool so all storage functions use in-memory fallback
+  }
 }
 async function getDone(loc) {
   if (!pool) return [...(mem.steps.get(loc) || [])];
@@ -214,5 +222,5 @@ app.post('/webhooks/ghl', async (req, res) => {
 });
 
 initDb()
-  .then(() => app.listen(PORT, () => console.log('onboarding api on :' + PORT)))
-  .catch(e => { console.error(e); process.exit(1); });
+  .then(() => app.listen(PORT, () => console.log('🚀  onboarding api on :' + PORT)))
+  .catch(e => { console.error('Fatal startup error:', e.message); process.exit(1); });
