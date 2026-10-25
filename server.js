@@ -1,0 +1,138 @@
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+
+const {
+  GHL_TOKEN,
+  ONBOARDING_LOCATION_ID,
+  ONBOARDING_PIPELINE_ID,
+  STEP_STAGES = '{}',
+  ALLOWED_ORIGINS = 'https://app.gohighlevel.com',
+  DATABASE_URL,
+  ADMIN_KEY,
+  PORT = 3000
+} = process.env;
+
+const STAGES = JSON.parse(STEP_STAGES);                       // { stepId: stageId }
+const ORIGINS = ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
+const LOC_RE = /^[A-Za-z0-9]{10,30}$/;
+
+/* ---------------- storage: Postgres, or memory fallback ---------------- */
+const pool = DATABASE_URL
+  ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  : null;
+const mem = { steps: new Map(), opp: new Map() };             // locationId -> Set / oppId
+
+async function initDb() {
+  if (!pool) return console.warn('DATABASE_URL not set: using in-memory storage');
+  await pool.query(`
+    create table if not exists ob_steps(
+      location_id text, step_id text, done_at timestamptz default now(),
+      primary key (location_id, step_id));
+    create table if not exists ob_opp(
+      location_id text primary key, opportunity_id text not null);`);
+}
+async function getDone(loc) {
+  if (!pool) return [...(mem.steps.get(loc) || [])];
+  const r = await pool.query('select step_id from ob_steps where location_id=$1', [loc]);
+  return r.rows.map(x => x.step_id);
+}
+async function markDone(loc, step) {
+  if (!pool) {
+    if (!mem.steps.has(loc)) mem.steps.set(loc, new Set());
+    return mem.steps.get(loc).add(step);
+  }
+  await pool.query(
+    'insert into ob_steps(location_id, step_id) values($1,$2) on conflict do nothing', [loc, step]);
+}
+async function getOpp(loc) {
+  if (!pool) return mem.opp.get(loc);
+  const r = await pool.query('select opportunity_id from ob_opp where location_id=$1', [loc]);
+  return r.rows[0] && r.rows[0].opportunity_id;
+}
+async function setOpp(loc, opp) {
+  if (!pool) return mem.opp.set(loc, opp);
+  await pool.query(
+    `insert into ob_opp(location_id, opportunity_id) values($1,$2)
+     on conflict (location_id) do update set opportunity_id=excluded.opportunity_id`, [loc, opp]);
+}
+
+/* ---------------- GHL API ---------------- */
+async function ghl(method, path, body) {
+  const r = await fetch('https://services.leadconnectorhq.com' + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${GHL_TOKEN}`,
+      Version: '2021-07-28',
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const text = await r.text();
+  let json; try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  if (!r.ok) throw Object.assign(new Error('GHL ' + r.status), { detail: json });
+  return json;
+}
+
+// Finds the onboarding opportunity for a client sub-account:
+// 1) saved mapping, else 2) opportunity in the onboarding pipeline whose name contains the location id
+async function resolveOpportunity(loc) {
+  const saved = await getOpp(loc);
+  if (saved) return saved;
+  const q = new URLSearchParams({
+    location_id: ONBOARDING_LOCATION_ID,
+    pipeline_id: ONBOARDING_PIPELINE_ID,
+    q: loc,
+    limit: '5'
+  });
+  const res = await ghl('GET', '/opportunities/search?' + q);
+  const opp = (res.opportunities || [])[0];
+  if (!opp) return null;
+  await setOpp(loc, opp.id);
+  return opp.id;
+}
+
+/* ---------------- app ---------------- */
+const app = express();
+app.use(express.json());
+app.use(cors({ origin: (origin, cb) => cb(null, !origin || ORIGINS.includes(origin)) }));
+
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+app.get('/onboarding/status', async (req, res) => {
+  const loc = String(req.query.locationId || '');
+  if (!LOC_RE.test(loc)) return res.status(400).json({ error: 'bad locationId' });
+  try { res.json({ completed: await getDone(loc) }); }
+  catch (e) { console.error(e); res.status(500).json({ error: 'server' }); }
+});
+
+app.post('/onboarding/complete', async (req, res) => {
+  const { locationId: loc, stepId } = req.body || {};
+  if (!LOC_RE.test(String(loc))) return res.status(400).json({ error: 'bad locationId' });
+  const stageId = STAGES[stepId];
+  if (!stageId) return res.status(400).json({ error: 'unknown step' });
+  try {
+    const oppId = await resolveOpportunity(loc);
+    if (!oppId) return res.status(404).json({ error: 'no onboarding opportunity for this location' });
+    await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: stageId });
+    await markDone(loc, stepId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e.message, JSON.stringify(e.detail || {}));
+    res.status(502).json({ error: 'ghl update failed' });
+  }
+});
+
+// Manually link a client location to its onboarding opportunity
+app.post('/admin/map', async (req, res) => {
+  if (!ADMIN_KEY || req.get('x-admin-key') !== ADMIN_KEY) return res.status(401).end();
+  const { locationId, opportunityId } = req.body || {};
+  if (!LOC_RE.test(String(locationId)) || !opportunityId) return res.status(400).end();
+  await setOpp(locationId, opportunityId);
+  res.json({ ok: true });
+});
+
+initDb()
+  .then(() => app.listen(PORT, () => console.log('onboarding api on :' + PORT)))
+  .catch(e => { console.error(e); process.exit(1); });
