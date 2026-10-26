@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
@@ -14,6 +16,7 @@ const {
   ADMIN_KEY,
   START_STAGE_ID,
   LOCATION_FIELD_ID,
+  PUBLIC_URL,
   AUTO_CREATE = 'false',
   WEBHOOK_KEY,
   MAX_CREATES_PER_HOUR = '30',
@@ -35,7 +38,8 @@ const LOC_RE = /^[A-Za-z0-9]{10,30}$/;
 let pool = DATABASE_URL
   ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
   : null;
-const mem = { steps: new Map(), opp: new Map() };             // locationId -> Set / oppId
+const mem = { steps: new Map(), opp: new Map() };
+const missUntil = new Map();                                  // locationId -> timestamp (cached 'not linked')             // locationId -> Set / oppId
 
 async function initDb() {
   if (!pool) return console.warn('⚠️  DATABASE_URL not set: using in-memory storage (data lost on restart)');
@@ -73,6 +77,7 @@ async function getOpp(loc) {
   return r.rows[0] && r.rows[0].opportunity_id;
 }
 async function setOpp(loc, opp) {
+  missUntil.delete(loc);
   if (!pool) return mem.opp.set(loc, opp);
   await pool.query(
     `insert into ob_opp(location_id, opportunity_id) values($1,$2)
@@ -200,18 +205,50 @@ async function ensureOpportunity(loc, info) {
   return p;
 }
 
+// true = linked, false = not linked (cached 5 min to protect the GHL rate limit), null = could not check
+async function isLinked(loc) {
+  if (await getOpp(loc)) return true;
+  if ((missUntil.get(loc) || 0) > Date.now()) return false;
+  try {
+    const id = await resolveOpportunity(loc);
+    if (!id) missUntil.set(loc, Date.now() + 5 * 60 * 1000);
+    return !!id;
+  } catch (e) {
+    console.error('lookup failed', e.message, JSON.stringify(e.detail || {}));
+    return null;
+  }
+}
+
 /* ---------------- app ---------------- */
 const app = express();
 app.use(express.json());
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || ORIGINS.includes(origin)) }));
+
+// The widget itself: GHL loads this with <script src=".../widget.js">. Edit widget.config.json to change steps/videos.
+function widgetSource(req) {
+  const tpl = fs.readFileSync(path.join(__dirname, 'public', 'widget.template.js'), 'utf8');
+  const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'widget.config.json'), 'utf8'));
+  const proto = (req.get('x-forwarded-proto') || req.protocol).split(',')[0];
+  cfg.API_BASE = (PUBLIC_URL || proto + '://' + req.get('host')).replace(/\/$/, '');
+  const json = JSON.stringify(cfg).replace(/</g, '\\u003c');
+  return tpl.replace('__WIDGET_CONFIG__', () => json);
+}
+
+app.get('/widget.js', (req, res) => {
+  try {
+    res.type('application/javascript').set('Cache-Control', 'public, max-age=300').send(widgetSource(req));
+  } catch (e) {
+    console.error('widget.js failed:', e.message);
+    res.status(500).type('text/plain').send('// onboarding widget unavailable');
+  }
+});
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/onboarding/status', async (req, res) => {
   const loc = String(req.query.locationId || '');
   if (!LOC_RE.test(loc)) return res.status(400).json({ error: 'bad locationId' });
-  resolveOpportunity(loc).catch(e => console.error('lookup failed', e.message, JSON.stringify(e.detail || {})));
-  try { res.json({ completed: await getDone(loc) }); }
+  try { res.json({ completed: await getDone(loc), linked: await isLinked(loc) }); }
   catch (e) { console.error(e); res.status(500).json({ error: 'server' }); }
 });
 
@@ -275,6 +312,51 @@ app.post('/admin/link', async (req, res) => {
     console.error(e.message, JSON.stringify(e.detail || {}));
     res.status(502).end();
   }
+});
+
+// Bulk-load existing sub-accounts. Used by tools/backfill.js (batches of up to 25 rows).
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function backfillRow(row, opts) {
+  const loc = String(row.locationId || '').trim();
+  const email = String(row.email || '').trim();
+  if (!LOC_RE.test(loc)) return { locationId: loc, email, result: 'bad_location_id' };
+
+  let oppId = await getOpp(loc);
+  let how = 'already_linked';
+  if (!oppId && email) { oppId = await linkByEmail(loc, email); how = 'linked_by_email'; }
+  if (!oppId) { oppId = await resolveOpportunity(loc); how = 'linked_by_name'; }
+  if (!oppId && opts.create) {
+    if (!START_STAGE_ID) return { locationId: loc, email, result: 'create_needs_START_STAGE_ID' };
+    oppId = await createOpportunity(loc, { name: row.name, email });
+    await setOpp(loc, oppId);
+    how = 'created';
+  }
+  if (!oppId) return { locationId: loc, email, result: 'not_found' };
+
+  if (opts.complete) {
+    const ids = Object.keys(STAGES);
+    await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: STAGES[ids[ids.length - 1]] });
+    for (const id of ids) await markDone(loc, id);
+    how += '+completed';
+  }
+  return { locationId: loc, email, result: how, opportunityId: oppId };
+}
+
+app.post('/admin/backfill', async (req, res) => {
+  if (!ADMIN_KEY || req.get('x-admin-key') !== ADMIN_KEY) return res.status(401).end();
+  const body = req.body || {};
+  const rows = Array.isArray(body.rows) ? body.rows.slice(0, 25) : [];
+  const opts = { create: !!body.create, complete: !!body.complete };
+  const results = [];
+  for (const row of rows) {
+    try { results.push(await backfillRow(row || {}, opts)); }
+    catch (e) {
+      results.push({ locationId: row && row.locationId, result: 'error', detail: e.message + ' ' + JSON.stringify(e.detail || {}) });
+    }
+    await sleep(300);
+  }
+  res.json({ results });
 });
 
 initDb()

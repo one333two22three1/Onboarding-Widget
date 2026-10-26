@@ -61,10 +61,16 @@
     root.innerHTML =
       '<style>' +
       '*{box-sizing:border-box;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}' +
-      '.ribbon{position:fixed;right:0;top:120px;background:#4f46e5;color:#fff;border:0;cursor:pointer;' +
-      'padding:12px 14px 12px 26px;font-size:13px;font-weight:600;' +
-      'clip-path:polygon(0 0,100% 0,100% 100%,0 100%,14px 50%);box-shadow:0 4px 14px rgba(0,0,0,.25)}' +
-      '.ribbon:hover{background:#4338ca}' +
+      '.ribbon{position:fixed;right:0;top:120px;background:#4B006E;color:#fff;border:0;cursor:pointer;' +
+      'display:flex;align-items:center;padding:12px 12px 12px 24px;font-size:13px;font-weight:600;' +
+      'clip-path:polygon(0 0,100% 0,100% 100%,0 100%,14px 50%);transition:background .2s}' +
+      '.ribbon:hover,.ribbon.open{background:#3a0055}' +
+      '.ribbon .ico{display:flex;width:18px;overflow:hidden;opacity:1;transition:width .25s ease,opacity .15s ease}' +
+      '.ribbon .ico svg{flex:none;width:18px;height:18px}' +
+      '.ribbon .lbl{display:flex;align-items:center;white-space:nowrap;max-width:0;overflow:hidden;opacity:0;' +
+      'transition:max-width .3s ease,opacity .2s ease}' +
+      '.ribbon:hover .ico,.ribbon.open .ico,.ribbon:focus-visible .ico{width:0;opacity:0}' +
+      '.ribbon:hover .lbl,.ribbon.open .lbl,.ribbon:focus-visible .lbl{max-width:200px;opacity:1}' +
       '.ribbon .cnt{margin-left:8px;background:rgba(255,255,255,.22);border-radius:10px;padding:2px 8px;font-size:11px}' +
       '.panel{position:fixed;right:12px;top:172px;width:340px;max-height:calc(100vh - 200px);overflow:auto;' +
       'background:#fff;color:#111827;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.28);' +
@@ -105,6 +111,7 @@
       '  <button class="vclose" id="vclose" aria-label="Close video">&times;</button>' +
       '  <video id="player" controls playsinline></video></div></div>';
 
+    var GEAR = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>';
     var $ = function (id) { return root.getElementById(id); };
     var ribbon = $('ribbon'), panel = $('panel'), list = $('list'),
       modal = $('modal'), player = $('player'), err = $('err');
@@ -112,6 +119,11 @@
     $('title').textContent = CONFIG.TITLE;
 
     /* ---------- Behaviour ---------- */
+    function setOpen(v) {
+      panel.classList.toggle('open', v);
+      ribbon.classList.toggle('open', v);
+    }
+
     function navigate(path) {
       var url = '/v2/location/' + state.loc + path;
       try {
@@ -122,7 +134,7 @@
           if (location.pathname + location.search !== url) location.href = url;
         }, 400);
       } catch (e) { location.href = url; }
-      panel.classList.remove('open');
+      setOpen(false);
     }
 
     function openVideo(src) {
@@ -194,12 +206,14 @@
       $('sum').textContent = count === STEPS.length
         ? '\uD83C\uDF89 Onboarding complete (100%)'
         : 'Overall: ' + count + ' of ' + STEPS.length + ' completed (' + pct + '%)';
-      ribbon.innerHTML = CONFIG.TITLE + '<span class="cnt">' + count + '/' + STEPS.length + '</span>';
+      ribbon.innerHTML = '<span class="ico">' + GEAR + '</span><span class="lbl">' + CONFIG.TITLE +
+        '<span class="cnt">' + count + '/' + STEPS.length + '</span></span>';
     }
 
     function syncFromServer() {
       api('GET', '/onboarding/status?locationId=' + encodeURIComponent(state.loc))
         .then(function (res) {
+          state.done = {};                      // server is the source of truth
           (res.completed || []).forEach(function (id) { state.done[id] = true; });
           saveLocal(); render();
         }).catch(function () { /* offline backend: keep local state */ });
@@ -216,8 +230,9 @@
       }
     }
 
-    ribbon.onclick = function () { panel.classList.toggle('open'); };
-    $('close').onclick = function () { panel.classList.remove('open'); };
+    ribbon.setAttribute('aria-label', 'Onboarding checklist');
+    ribbon.onclick = function () { setOpen(!panel.classList.contains('open')); };
+    $('close').onclick = function () { setOpen(false); };
     $('vclose').onclick = closeVideo;
     modal.onclick = function (e) { if (e.target === modal) closeVideo(); };
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeVideo(); });
