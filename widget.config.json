@@ -4,26 +4,26 @@
         {
             "id": "business-profile",
             "name": "Complete business profile",
-            "path": "/settings/business_info",
-            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/YOUR_VIDEO_1.mp4"
+            "path": "/settings/company",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
         },
         {
             "id": "import-contacts",
             "name": "Import your contacts",
             "path": "/contacts/smart_list/All",
-            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/YOUR_VIDEO_2.mp4"
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
         },
         {
             "id": "connect-calendar",
             "name": "Connect your calendar",
             "path": "/settings/calendars",
-            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/YOUR_VIDEO_3.mp4"
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
         },
         {
             "id": "first-workflow",
             "name": "Create your first workflow",
             "path": "/automation/workflows",
-            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/YOUR_VIDEO_4.mp4"
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
         }
     ]
 }
