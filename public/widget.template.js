@@ -189,10 +189,16 @@
             }).catch(function () { /* offline backend: keep local state */ });
     }
 
+    function isAllowed(loc) {
+        var only = CONFIG.ONLY_LOCATIONS;
+        return !only || !only.length || only.indexOf(loc) >= 0;
+    }
+
     function onLocationChange() {
         var loc = getLoc();
-        host.style.display = (loc && state.linked !== false) ? '' : 'none';   // only inside a sub-account
-        if (loc && loc !== state.loc) {
+        if (!loc || !isAllowed(loc)) { host.style.display = 'none'; return; }   // testing allowlist
+        host.style.display = state.linked !== false ? '' : 'none';
+        if (loc !== state.loc) {
             state.loc = loc;
             state.linked = null;
             state.done = loadLocal();

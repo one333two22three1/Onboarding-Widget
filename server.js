@@ -34,6 +34,15 @@ try {
 const ORIGINS = ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 const LOC_RE = /^[A-Za-z0-9]{10,30}$/;
 
+// Pipeline model, taken from STEP_STAGES (keys must be in pipeline order).
+// Stages the customer cannot tick: the backend / your team moves the opportunity there.
+const SPECIAL = new Set(['new-client', 'onboarding-steps-done', 'onboarding-call-booked', 'onboarding-complete']);
+const ALL_DONE_KEY = 'onboarding-steps-done';
+const ORDER = Object.keys(STAGES);
+const CHECKLIST = ORDER.filter(k => !SPECIAL.has(k));              // the steps shown in the widget
+const STAGE_INDEX = new Map(ORDER.map((k, i) => [STAGES[k], i]));
+const START_STAGE = START_STAGE_ID || STAGES['new-client'];
+
 /* ---------------- storage: Postgres, or memory fallback ---------------- */
 let pool = DATABASE_URL
   ? new Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } })
@@ -183,7 +192,7 @@ async function createOpportunity(loc, info = {}) {
     pipelineId: ONBOARDING_PIPELINE_ID,
     locationId: ONBOARDING_LOCATION_ID,
     name: `${label} - ${loc}`,
-    pipelineStageId: START_STAGE_ID,
+    pipelineStageId: START_STAGE,
     status: 'open',
     contactId
   });
@@ -192,7 +201,7 @@ async function createOpportunity(loc, info = {}) {
 
 async function ensureOpportunity(loc, info) {
   const existing = await resolveOpportunity(loc);
-  if (existing || AUTO_CREATE !== 'true' || !START_STAGE_ID) return existing || null;
+  if (existing || AUTO_CREATE !== 'true' || !START_STAGE) return existing || null;
   if (inflight.has(loc)) return inflight.get(loc);
   if (!underCreateLimit()) return null;
   const p = (async () => {
@@ -219,6 +228,26 @@ async function isLinked(loc) {
   }
 }
 
+// Move the opportunity to the stage that matches the customer's progress. Never moves it backwards,
+// so stages your team set (call booked, complete) are not overwritten.
+async function advanceStage(loc, oppId, stepId) {
+  const done = new Set(await getDone(loc));
+  done.add(stepId);
+  const doneSteps = CHECKLIST.filter(k => done.has(k));
+  const allDone = doneSteps.length === CHECKLIST.length;
+  const target = allDone && STAGES[ALL_DONE_KEY] ? STAGES[ALL_DONE_KEY] : STAGES[doneSteps[doneSteps.length - 1]];
+
+  let current;
+  try {
+    const o = await ghl('GET', `/opportunities/${oppId}`);
+    current = (o.opportunity || o).pipelineStageId;
+  } catch (e) { /* could not read the current stage: just update */ }
+
+  const cur = STAGE_INDEX.get(current), tgt = STAGE_INDEX.get(target);
+  if (cur !== undefined && tgt !== undefined && cur >= tgt) return;
+  await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: target });
+}
+
 /* ---------------- app ---------------- */
 const app = express();
 app.use(express.json());
@@ -230,6 +259,7 @@ function widgetSource(req) {
   const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, 'widget.config.json'), 'utf8'));
   const proto = (req.get('x-forwarded-proto') || req.protocol).split(',')[0];
   cfg.API_BASE = (PUBLIC_URL || proto + '://' + req.get('host')).replace(/\/$/, '');
+  cfg.ONLY_LOCATIONS = (process.env.ONLY_LOCATIONS || '').split(',').map(x => x.trim()).filter(Boolean);
   const json = JSON.stringify(cfg).replace(/</g, '\\u003c');
   return tpl.replace('__WIDGET_CONFIG__', () => json);
 }
@@ -255,15 +285,14 @@ app.get('/onboarding/status', async (req, res) => {
 app.post('/onboarding/complete', async (req, res) => {
   const { locationId: loc, stepId } = req.body || {};
   if (!LOC_RE.test(String(loc))) return res.status(400).json({ error: 'bad locationId' });
-  const stageId = STAGES[stepId];
-  if (!stageId) return res.status(400).json({ error: 'unknown step' });
+  if (!CHECKLIST.includes(stepId)) return res.status(400).json({ error: 'unknown step' });
   try {
     const oppId = await resolveOpportunity(loc);
     if (!oppId) {
       console.warn('not linked yet: ' + loc + ' (link by email via the webhook or /admin/link)');
       return res.status(404).json({ error: 'no onboarding opportunity linked to this location' });
     }
-    await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: stageId });
+    await advanceStage(loc, oppId, stepId);
     await markDone(loc, stepId);
     res.json({ ok: true });
   } catch (e) {
@@ -327,7 +356,7 @@ async function backfillRow(row, opts) {
   if (!oppId && email) { oppId = await linkByEmail(loc, email); how = 'linked_by_email'; }
   if (!oppId) { oppId = await resolveOpportunity(loc); how = 'linked_by_name'; }
   if (!oppId && opts.create) {
-    if (!START_STAGE_ID) return { locationId: loc, email, result: 'create_needs_START_STAGE_ID' };
+    if (!START_STAGE) return { locationId: loc, email, result: 'create_needs_START_STAGE_ID' };
     oppId = await createOpportunity(loc, { name: row.name, email });
     await setOpp(loc, oppId);
     how = 'created';
@@ -335,9 +364,9 @@ async function backfillRow(row, opts) {
   if (!oppId) return { locationId: loc, email, result: 'not_found' };
 
   if (opts.complete) {
-    const ids = Object.keys(STAGES);
-    await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: STAGES[ids[ids.length - 1]] });
-    for (const id of ids) await markDone(loc, id);
+    const finalStage = STAGES['onboarding-complete'] || STAGES[ORDER[ORDER.length - 1]];
+    await ghl('PUT', `/opportunities/${oppId}`, { pipelineStageId: finalStage });
+    for (const id of CHECKLIST) await markDone(loc, id);
     how += '+completed';
   }
   return { locationId: loc, email, result: how, opportunityId: oppId };

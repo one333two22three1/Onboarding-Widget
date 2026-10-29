@@ -2,28 +2,40 @@
     "TITLE": "Onboarding",
     "STEPS": [
         {
+            "id": "social-media-links",
+            "name": "Add your social media links",
+            "path": "/marketing/social-planner",
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_1.mp4"
+        },
+        {
             "id": "business-profile",
             "name": "Complete business profile",
             "path": "/settings/company",
-            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_2.mp4"
         },
         {
-            "id": "import-contacts",
-            "name": "Import your contacts",
-            "path": "/contacts/smart_list/All",
-            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
+            "id": "personal-profile",
+            "name": "Complete your personal profile",
+            "path": "/settings/users/me",
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_3.mp4"
         },
         {
-            "id": "connect-calendar",
-            "name": "Connect your calendar",
-            "path": "/settings/calendars",
-            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
+            "id": "call-tracking",
+            "name": "Set up call tracking",
+            "path": "/settings/phone_system",
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_4.mp4"
         },
         {
-            "id": "first-workflow",
-            "name": "Create your first workflow",
-            "path": "/automation/workflows",
-            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/68ac28a0d023bc2ebc9fe26b.mp4"
+            "id": "integrations",
+            "name": "Connect your integrations",
+            "path": "/settings/lc-integrations",
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_5.mp4"
+        },
+        {
+            "id": "domain-migration",
+            "name": "Migrate your domain",
+            "path": "/settings/domain",
+            "video": "https://assets.cdn.filesafe.space/YOUR_LOCATION_ID/media/VIDEO_6.mp4"
         }
     ]
 }
