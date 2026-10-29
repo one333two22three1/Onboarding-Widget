@@ -2,12 +2,6 @@
     "TITLE": "Onboarding",
     "STEPS": [
         {
-            "id": "social-media-links",
-            "name": "Add your social media links",
-            "path": "/marketing/social-planner",
-            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74d6ebbad531ac82870f1.mp4"
-        },
-        {
             "id": "business-profile",
             "name": "Complete business profile",
             "path": "/settings/company",
@@ -36,6 +30,66 @@
             "name": "Migrate your domain",
             "path": "/settings/domain",
             "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ae31305ce53a65ab275cda8.mp4"
+        },
+        {
+            "id": "funnels-and-websites",
+            "name": "Build your funnels and websites",
+            "path": "/funnels-websites/funnels",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74d59d5f4a8af43a350d8.mp4"
+        },
+        {
+            "id": "automations",
+            "name": "Set up your automations",
+            "path": "/automation/workflows",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74cf3c478ac55354026a8.mp4"
+        },
+        {
+            "id": "email-and-sms",
+            "name": "Set up email and SMS",
+            "path": "/conversations/conversations",
+            "video": "https://app.wayhub.io/v2/location/M5RXqSeyulyBcRNM5Jw4/conversations/conversations?category=team-inbox&tab=unread"
+        },
+        {
+            "id": "calendars",
+            "name": "Set up your calendars",
+            "path": "/settings/calendars",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74c6fd5f4a8af43a3332d.mp4"
+        },
+        {
+            "id": "reputation",
+            "name": "Set up reputation management",
+            "path": "/reputation/overview",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74cb68c077584b4f0cc5a.mp4"
+        },
+        {
+            "id": "membership",
+            "name": "Set up memberships",
+            "path": "/memberships/client-portal/dashboard",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74cb4c478ac5535401866.mp4"
+        },
+        {
+            "id": "payments",
+            "name": "Payments and Contracts",
+            "path": "/payments/invoices",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74c97c478ac55354014ea.mp4"
+        },
+        {
+            "id": "dedicated-email-domain",
+            "name": "Set up a dedicated email domain",
+            "path": "/settings/smtp_service",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74c5dd5f4a8af43a331a6.mp4"
+        },
+        {
+            "id": "importing-contacts",
+            "name": "Import your contacts",
+            "path": "/contacts/smart_list/All",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74c80bbad531ac8285391.mp4"
+        },
+        {
+            "id": "social-media-links",
+            "name": "Add your social media links",
+            "path": "/marketing/social-planner",
+            "video": "https://assets.cdn.filesafe.space/M5RXqSeyulyBcRNM5Jw4/media/6ac74d6ebbad531ac82870f1.mp4"
         }
     ]
 }

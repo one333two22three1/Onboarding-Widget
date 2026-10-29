@@ -40,12 +40,13 @@
         '.ribbon:hover .ico,.ribbon.open .ico,.ribbon:focus-visible .ico{width:0;opacity:0}' +
         '.ribbon:hover .lbl,.ribbon.open .lbl,.ribbon:focus-visible .lbl{max-width:200px;opacity:1}' +
         '.ribbon .cnt{margin-left:8px;background:rgba(255,255,255,.22);border-radius:10px;padding:2px 8px;font-size:11px}' +
-        '.panel{position:fixed;right:12px;top:172px;width:340px;max-height:calc(100vh - 200px);overflow:auto;' +
+        '.panel{position:fixed;right:12px;top:172px;width:340px;max-height:calc(100vh - 200px);display:flex;flex-direction:column;overflow:hidden;' +
         'background:#fff;color:#111827;border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.28);' +
         'transform-origin:top right;transform:scaleY(0);opacity:0;pointer-events:none;' +
         'transition:transform .22s ease,opacity .22s ease}' +
         '.panel.open{transform:scaleY(1);opacity:1;pointer-events:auto}' +
-        '.hd{padding:14px 16px;border-bottom:1px solid #e5e7eb;font-weight:700;font-size:15px;' +
+        '#list{flex:1 1 auto;min-height:0;overflow-y:auto}' +
+        '.hd{flex:none;padding:14px 16px;border-bottom:1px solid #e5e7eb;font-weight:700;font-size:15px;' +
         'display:flex;justify-content:space-between;align-items:center}' +
         '.x{background:none;border:0;font-size:18px;cursor:pointer;color:#6b7280}' +
         '.row{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid #f3f4f6}' +
@@ -57,7 +58,7 @@
         '.nm:hover{color:#4f46e5;text-decoration:underline}' +
         '.row input{flex:none;width:18px;height:18px;accent-color:#16a34a;cursor:pointer}' +
         '.row input:disabled{cursor:default}' +
-        '.ft{padding:14px 16px}' +
+        '.ft{flex:none;padding:14px 16px;border-top:1px solid #e5e7eb}' +
         '.bar{height:8px;background:#e5e7eb;border-radius:6px;overflow:hidden}' +
         '.bar i{display:block;height:100%;background:#16a34a;width:0;transition:width .3s}' +
         '.sum{margin-top:8px;font-size:13px;font-weight:600}' +
